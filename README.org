@@ -5,7 +5,7 @@
 A minimal ChatGPT Emacs shell.
 
 Benjamins fork with stream response:
-#+HTML: <img src="https://imgur.com/XnUMhDk" width="80%" />
+#+HTML: <img src="https://i.imgur.com/XnUMhDk.gif" width="80%" />
 
 
 #+HTML: <img src="https://raw.githubusercontent.com/xenodium/chatgpt-shell/main/chatgpt-shell-demo.gif" width="80%" />
