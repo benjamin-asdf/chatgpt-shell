@@ -66,7 +66,7 @@ Objective-C -> (\"objective-c\" . \"objc\")"
   :type '()
   :group 'chatgpt-shell)
 
-(defcustom chatgpt-shell-model-version "gpt-3.5-turbo"
+(defcustom chatgpt-shell-model-version "gpt-4"
   "The used OpenAI model.
 
 The list of models supported by /v1/chat/completions endpoint is
@@ -309,98 +309,160 @@ Set SAVE-EXCURSION to prevent point from moving."
   "Evaluate the Lisp expression INPUT-STRING, and pretty-print the result."
   (unless chatgpt-shell--busy
     (setq chatgpt-shell--busy t)
-    (cond
-     ((string-equal "clear" (string-trim input-string))
-      (call-interactively 'comint-clear-buffer)
-      (comint-output-filter (chatgpt-shell--process) chatgpt-shell--prompt-internal)
-      (setq chatgpt-shell--busy nil))
-     ((not (json-available-p))
-      (chatgpt-shell--write-reply "Emacs needs to be compiled with --with-json")
-      (setq chatgpt-shell--busy nil))
-     ((not (chatgpt-shell--curl-version-supported))
-      (chatgpt-shell--write-reply "You need curl version 7.67 or newer.")
-      (setq chatgpt-shell--busy nil))
-     ((not chatgpt-shell-openai-key)
-      (chatgpt-shell--write-reply
-       "Variable `chatgpt-shell-openai-key' needs to be set to your key.
+    (cond ((string-equal
+            "clear"
+            (string-trim input-string))
+           (call-interactively
+            'comint-clear-buffer)
+           (comint-output-filter
+            (chatgpt-shell--process)
+            chatgpt-shell--prompt-internal)
+           (setq chatgpt-shell--busy nil))
+          ((not (json-available-p))
+           (chatgpt-shell--write-reply
+            "Emacs needs to be compiled with --with-json")
+           (setq chatgpt-shell--busy nil))
+          ((not (chatgpt-shell--curl-version-supported))
+           (chatgpt-shell--write-reply
+            "You need curl version 7.67 or newer.")
+           (setq chatgpt-shell--busy nil))
+          ((not chatgpt-shell-openai-key)
+           (chatgpt-shell--write-reply
+            "Variable `chatgpt-shell-openai-key' needs to be set to your key.
 
 Try M-x set-variable chatgpt-shell-openai-key
 
 or
 
-(setq chatgpt-shell-openai-key \"my-key\")" t)
-      (setq chatgpt-shell--busy nil))
-     ((string-empty-p (string-trim input-string))
-      (comint-output-filter (chatgpt-shell--process)
-                            (concat "\n" chatgpt-shell--prompt-internal))
-      (setq chatgpt-shell--busy nil))
-     (t
-      ;; For viewing prompt delimiter (used to handle multiline prompts).
-      ;; (comint-output-filter (chatgpt-shell--process) "<gpt-end-of-prompt>")
-      (comint-output-filter (chatgpt-shell--process)
-                            (propertize "<gpt-end-of-prompt>"
-                                        'invisible (not chatgpt-shell--show-invisible-markers)))
-      (when-let ((key (cond ((stringp chatgpt-shell-openai-key)
+(setq chatgpt-shell-openai-key \"my-key\")"
+            t)
+           (setq chatgpt-shell--busy nil))
+          ((string-empty-p
+            (string-trim input-string))
+           (comint-output-filter
+            (chatgpt-shell--process)
+            (concat
+             "\n"
+             chatgpt-shell--prompt-internal))
+           (setq chatgpt-shell--busy nil))
+          (t
+           ;; For viewing prompt delimiter (used to handle multiline prompts).
+           ;; (comint-output-filter (chatgpt-shell--process) "<gpt-end-of-prompt>")
+           (comint-output-filter
+            (chatgpt-shell--process)
+            (propertize
+             "<gpt-end-of-prompt>"
+             'invisible
+             (not chatgpt-shell--show-invisible-markers)))
+           (when-let
+               ((key
+                 (cond ((stringp
+                         chatgpt-shell-openai-key)
+                        chatgpt-shell-openai-key)
+                       ((functionp
+                         chatgpt-shell-openai-key)
+                        (condition-case err
+                            (funcall
                              chatgpt-shell-openai-key)
-                            ((functionp chatgpt-shell-openai-key)
-                             (condition-case err
-                                 (funcall chatgpt-shell-openai-key)
-                               (error
-                                (chatgpt-shell--write-reply (error-message-string err) t)
-                                (comint-output-filter (chatgpt-shell--process)
-                                                      (propertize "\n<gpt-ignored-response>"
-                                                                  'invisible (not chatgpt-shell--show-invisible-markers)))
-                                (setq chatgpt-shell--busy nil)
-                                nil))))))
-        (chatgpt-shell--async-shell-command
-         (chatgpt-shell--make-request-command-list
-          (vconcat
-           (last (chatgpt-shell--extract-commands-and-responses)
+                          (error
+                           (chatgpt-shell--write-reply
+                            (error-message-string err)
+                            t)
+                           (comint-output-filter
+                            (chatgpt-shell--process)
+                            (propertize
+                             "\n<gpt-ignored-response>"
+                             'invisible
+                             (not chatgpt-shell--show-invisible-markers)))
+                           (setq chatgpt-shell--busy nil)
+                           nil))))))
+             (chatgpt-shell--write-partial-reply
+              "\n")
+             (chatgpt-shell--async-shell-command
+              (chatgpt-shell--make-request-command-list
+               (vconcat
+                (last
+                 (chatgpt-shell--extract-commands-and-responses)
                  (if (null chatgpt-shell-transmitted-context-length)
                      ;; If variable above is nil, send "full" context
                      2048
                    ;; Send in pairs of prompt and completion by
                    ;; multiplying by 2
-                   (1+ (* 2 chatgpt-shell-transmitted-context-length)))))
-          key)
-         (lambda (response)
-           (if-let ((content (chatgpt-shell--extract-content response)))
-               (chatgpt-shell--write-reply content)
-             (chatgpt-shell--write-reply "Error: that's all I know" t))
-           (setq chatgpt-shell--busy nil))
-         (lambda (error)
-           (chatgpt-shell--write-reply error t)
-           (setq chatgpt-shell--busy nil))))))))
+                   (1+ (*
+                        2
+                        chatgpt-shell-transmitted-context-length)))))
+               key)
+              (lambda (response)
+                (chatgpt-shell--write-partial-reply
+                 response))
+              (lambda ()
+                (chatgpt-shell--write-prompt)
+                (setq chatgpt-shell--busy nil))
+              (lambda (error)
+                (chatgpt-shell--write-reply
+                 error
+                 t)
+                (setq chatgpt-shell--busy nil))))))))
 
-(defun chatgpt-shell--async-shell-command (command callback error-callback)
+(defun chatgpt-shell--async-shell-command (command filter-callback callback error-callback)
   "Run shell COMMAND asynchronously.
+Calls filter-callback for with each chunk string from the stream.
 Calls CALLBACK and ERROR-CALLBACK with its output when finished."
-  (let ((request-id (chatgpt-shell--increment-request-id))
-        (output-buffer (generate-new-buffer " *temp*"))
-        (process-connection-type nil))
-    (chatgpt-shell--write-output-to-log-buffer "// Request\n\n")
-    (chatgpt-shell--write-output-to-log-buffer (string-join command " "))
-    (chatgpt-shell--write-output-to-log-buffer "\n\n")
-    (set-process-sentinel
-     (condition-case err
-         (apply #'start-process (append (list "ChatGPT" (buffer-name output-buffer))
-                                        command))
-       (error
-        (funcall error-callback (error-message-string err))
-        nil))
-     (lambda (process _event)
-       (let ((active (eq request-id chatgpt-shell--current-request-id))
-             (output (with-current-buffer (process-buffer process)
-                       (buffer-string))))
-         (chatgpt-shell--write-output-to-log-buffer
-          (format "// Response (%s)\n\n" (if active "active" "inactive")))
-         (chatgpt-shell--write-output-to-log-buffer output)
-         (chatgpt-shell--write-output-to-log-buffer "\n\n")
-         (when active
-           (if (= (process-exit-status process) 0)
-               (funcall callback output)
-             (funcall error-callback output)))
-         (kill-buffer output-buffer))))))
+  (let* ((output-buffer (generate-new-buffer " *temp*"))
+         (last-point nil)
+         (filter (defalias 'openai-stream-filter
+                   (lambda (process string)
+                     (with-temp-buffer
+                       (insert string)
+                       (goto-char (point-min))
+                       (while
+                           (when-let*
+                               ((data
+                                 (ignore-errors
+                                   (oai-read-a-data)))
+                                (choices
+                                 (assoc-default 'choices data))
+                                (msg
+                                 (or
+                                  (car (cl-map
+                                        'list
+                                        (lambda (d)
+                                          (assoc-default
+                                           'content
+                                           (assoc-default 'delta d)))
+                                        choices))
+                                  (car (cl-map
+                                        'list
+                                        (lambda (d)
+                                          (assoc-default
+                                           'role
+                                           (assoc-default 'delta d)))
+                                        choices))))
+                                (msg (if
+                                         (string= "assistant" msg)
+                                         "assistant: "
+                                       msg)))
+                             (funcall filter-callback msg)
+                             t)))))))
+    (make-process
+     :name "*openai-api-chat-stream*"
+     :buffer output-buffer
+     :filter filter
+     :command command
+     :sentinel (lambda (process _event)
+                 (let ((output (with-current-buffer
+                                   (process-buffer process)
+                                 (buffer-string))))
+                   (if (= (process-exit-status process)
+                          0)
+                       (funcall callback)
+                     nil
+                     (funcall error-callback output))
+                   (kill-buffer output-buffer))))))
+
+(defun oai-read-a-data ()
+  (when (re-search-forward "data: " nil t)
+    (json-read)))
 
 (defun chatgpt-shell--increment-request-id ()
   "Increment `chatgpt-shell--current-request-id'."
@@ -428,6 +490,18 @@ Used by `chatgpt-shell--send-input's call."
     (comint-send-input)
     (chatgpt-shell--eval-input chatgpt-shell--input)))
 
+
+(defun chatgpt-shell--write-partial-reply (reply)
+  "Write REPLY to prompt."
+  (comint-output-filter (chatgpt-shell--process)
+                        reply))
+
+(defun chatgpt-shell--write-prompt ()
+  "Write REPLY to prompt."
+  (comint-output-filter (chatgpt-shell--process)
+                        (concat "\n\n" chatgpt-shell--prompt-internal)))
+
+
 (defun chatgpt-shell--write-reply (reply &optional failed)
   "Write REPLY to prompt.  Set FAILED to record failure."
   (comint-output-filter (chatgpt-shell--process)
@@ -453,7 +527,8 @@ Used by `chatgpt-shell--send-input's call."
   "Build ChatGPT curl command list using MESSAGES and KEY."
   (cl-assert chatgpt-shell-openai-key nil "`chatgpt-shell-openai-key' needs to be set with your key")
   (let ((request-data `((model . ,chatgpt-shell-model-version)
-                        (messages . ,messages))))
+                        (messages . ,messages)
+                        (stream . t))))
     (when chatgpt-shell-model-temperature
       (push `(temperature . ,chatgpt-shell-model-temperature) request-data))
     (list "curl"
