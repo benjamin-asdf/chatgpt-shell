@@ -209,6 +209,70 @@ Uses the interface provided by `comint-mode'"
 
   (font-lock-add-keywords nil chatgpt-shell-font-lock-keywords))
 
+(defvar-local chatgpt-shell-contexts nil
+  "A list of pairs (ITEM . CONTENT-FN) representing context items from files or buffers.")
+
+(defun chatgpt-shell--context-file-messages (contexts)
+  "Return a list of context messages based on the provided CONTEXTS."
+  (interactive)
+  (cl-mapcar (lambda (ctx)
+               (list (cons 'role "system")
+                     (cons 'content (format "file: %s, content: %s"
+                                            (car ctx)
+                                            (funcall (cdr ctx))))))
+             contexts))
+
+
+(defun chatgpt-shell-shell-add-context-file ()
+  "Add context items (files or buffers) to ChatGPT."
+  (interactive)
+  ;; when consult is loaded, else completing-read
+  (let*
+      ((selected
+        (consult--multi
+         consult-buffer-sources
+         :prompt "Chat-GPT context: "
+         :history 'consult--buffer-history
+         :state nil
+         :require-match t
+         :sort nil))
+       (item (car selected)))
+    (cl-pushnew
+     `(,item .
+             ,(pcase
+                  (plist-get (cdr myselected) :name)
+                ("File"
+                 (lambda ()
+                   (with-temp-buffer
+                     (insert-file-contents file)
+                     (buffer-string))))
+                ("Buffer"
+                 (lambda ()
+                   (when-let ((b (get-buffer item)))
+                     (with-current-buffer b (buffer-substring-no-properties
+                                             (point-min)
+                                             (point-max)))) ))
+                ;; ""
+                ;; "Bookmarks"
+
+                ))
+     chatgpt-shell-contexts)))
+
+(defun chatgpt-clear-contexts ()
+  (interactive)
+  (setf chatgpt-shell-contexts nil))
+
+(defun chatgpt-clear-some-contexts ()
+  (interactive)
+  (if (not chatgpt-shell-contexts)
+      (message "contexts emtpy")
+      (let ((to-remove (completing-read-multiple "Remove: " (mapcar #'car chatgpt-shell-contexts)))
+            new-list)
+        (dolist (context chatgpt-shell-contexts)
+          (unless (member (car context) to-remove)
+            (push context new-list)))
+        (setq chatgpt-shell-contexts (nreverse new-list)))))
+
 (defun chatgpt-shell-return ()
   "RET binding."
   (interactive)
@@ -348,12 +412,14 @@ or
                                   "The user is a programmer hacker engineer. He is thinking in Lisp and Clojure.
 You treat his time as precious. You do not repeat obvious things.
 The knows how to read manuals.
-user iq: 140
+user iq: %s
 uname -a: %s
 emacs version: %s"
+                                  (if (boundp 'user-iq) user-iq "unkown.")
                                   (shell-command-to-string
                                    "uname -a")
                                   (emacs-version)))))
+                  (chatgpt-shell--context-file-messages chatgpt-shell-contexts)
                   (last
                    (chatgpt-shell--extract-commands-and-responses)
                    (if (null chatgpt-shell-transmitted-context-length)
@@ -510,7 +576,7 @@ Used by `chatgpt-shell--send-input's call."
       (push `(temperature . ,chatgpt-shell-model-temperature) request-data))
     (list "curl"
           "https://api.openai.com/v1/chat/completions"
-          "--fail" "--no-progress-meter" "-m" "30"
+          "--fail" "--no-progress-meter"
           "-H" "Content-Type: application/json"
           "-H" (format "Authorization: Bearer %s" key)
           "-d" (json-serialize request-data))))
