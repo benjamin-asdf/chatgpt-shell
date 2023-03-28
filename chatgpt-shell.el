@@ -411,7 +411,7 @@ or
                      (content . ,(format
                                   "The user is a programmer hacker engineer. He is thinking in Lisp and Clojure.
 You treat his time as precious. You do not repeat obvious things.
-The knows how to read manuals.
+The user knows how to read manuals.
 user iq: %s
 uname -a: %s
 emacs version: %s"
