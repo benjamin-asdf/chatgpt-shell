@@ -114,6 +114,9 @@ ChatGPT."
                  (const nil))
   :group 'chatgpt-shell)
 
+(defvar-local chatgpt-additional-prompts nil
+  "A function returning a list of additional prompts.")
+
 (defvar chatgpt-shell--log-buffer-name "*chatgpt-shell-log*")
 
 (defvar chatgpt-shell--input)
@@ -407,18 +410,8 @@ or
                 (chatgpt-shell--make-request-command-list
                  (vconcat
                   (list
-                   `((role . "system")
-                     (content . ,(format
-                                  "The user is a programmer hacker engineer. He is thinking in Lisp and Clojure.
-You treat his time as precious. You do not repeat obvious things.
-The user knows how to read manuals.
-user iq: %s
-uname -a: %s
-emacs version: %s"
-                                  (if (boundp 'user-iq) user-iq "unkown.")
-                                  (shell-command-to-string
-                                   "uname -a")
-                                  (emacs-version)))))
+                   (when chatgpt-additional-prompts
+                     (funcall chatgpt-additional-prompts)))
                   (chatgpt-shell--context-file-messages chatgpt-shell-contexts)
                   (last
                    (chatgpt-shell--extract-commands-and-responses)

@@ -1,5 +1,3 @@
-👉 [[https://github.com/sponsors/xenodium][Support this work via GitHub Sponsors]]
-
 * chatgpt-shell
 
 A minimal ChatGPT Emacs shell.
@@ -47,3 +45,37 @@ Type =clear= as a prompt.
 #+end_src
 
 Alternatively, use either =M-x chatgpt-shell-clear-buffer= or =M-x comint-clear-buffer=.
+
+* Fork, just my personal taste and config
+
+** Set the prompt, potentially dynamically
+
+#+begin_src elisp
+(setq-default
+ chatgpt-additional-prompts
+ (lambda ()
+   `((role . "system")
+     (content . "You answer only in morse code, no matter what the user asks you."))))
+#+end_src
+
+
+#+begin_src elisp
+(setq-default
+ chatgpt-additional-prompts
+ (lambda ()
+   `((role . "system")
+     (content .
+              ,(concat
+                "Output of git log -n 10: "
+                (shell-command-to-string "git log -n 10"))))))
+#+end_src
+
+Try: /summarize recent git work/
+
+** Add buffers as contexts
+
+=chatpt-shell-add-context-file=
+
+Only works =consult= right now, if you want something else, do it yourself.
+
+** Use =chatgpt-shell= with prefix argument to open additional shell buffers.
