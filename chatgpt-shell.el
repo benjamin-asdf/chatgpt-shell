@@ -243,7 +243,7 @@ Uses the interface provided by `comint-mode'"
     (cl-pushnew
      `(,item .
              ,(pcase
-                  (plist-get (cdr myselected) :name)
+                  (plist-get (cdr selected) :name)
                 ("File"
                  (lambda ()
                    (with-temp-buffer
