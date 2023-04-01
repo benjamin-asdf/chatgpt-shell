@@ -165,15 +165,24 @@ ChatGPT."
 ;;;###autoload
 (defun chatgpt-shell (&optional arg)
   "Start a ChatGPT shell."
-  (interactive "P")
-  (let ((old-point)
-        (buf-name (if arg (generate-new-buffer-name "*chatgpt*") "*chatgpt*")))
+  (interactive "p")
+  (let ((old-buf (current-buffer))
+        (old-point)
+        (buf-name (if (not (eq arg 1))
+                      (generate-new-buffer-name
+                       "*chatgpt*")
+                    "*chatgpt*")))
     (unless (comint-check-proc buf-name)
-      (with-current-buffer (get-buffer-create buf-name)
+      (with-current-buffer
+          (get-buffer-create buf-name)
         (setq chatgpt-shell--busy nil)
         (unless (zerop (buffer-size))
           (setq old-point (point)))
-        (inferior-chatgpt-mode)))
+        (inferior-chatgpt-mode)
+        (when (eq arg 2)
+          (cl-pushnew
+           (chatgpt-shell--context-buffer-item old-buf)
+           chatgpt-shell-contexts))))
     (pop-to-buffer-same-window buf-name)
     (when old-point
       (push-mark old-point))))
@@ -225,6 +234,14 @@ Uses the interface provided by `comint-mode'"
                                             (funcall (cdr ctx))))))
              contexts))
 
+(defun chatgpt-shell--context-buffer-item (buf)
+  (cons
+   (buffer-name buf)
+   (lambda ()
+     (when-let ((b (get-buffer buf)))
+       (with-current-buffer b (buffer-substring-no-properties
+                               (point-min)
+                               (point-max)))))))
 
 (defun chatgpt-shell-shell-add-context-file ()
   "Add context items (files or buffers) to ChatGPT."
@@ -254,13 +271,12 @@ Uses the interface provided by `comint-mode'"
                    (when-let ((b (get-buffer item)))
                      (with-current-buffer b (buffer-substring-no-properties
                                              (point-min)
-                                             (point-max)))) ))
+                                             (point-max))))))
                 ;; ""
                 ;; "Bookmarks"
 
                 ))
      chatgpt-shell-contexts)))
-
 (defun chatgpt-clear-contexts ()
   (interactive)
   (setf chatgpt-shell-contexts nil))
@@ -646,6 +662,16 @@ if `json' is available."
 (defun chatgpt-shell--process nil
   "Get *chatgpt* process."
   (get-buffer-process (current-buffer)))
+
+(defun chatgpt-shell-ibuffer-buffers ()
+  (interactive)
+  (let ((buffers (cl-remove-if-not
+                  (lambda (it)
+                    (when it
+                      (string-match-p "*chatgpt*" it)))
+                  (mapcar #'buffer-name (buffer-list)))))
+    (ibuffer t "*Chatpt shells Ibuffer*"
+             `((predicate . (member (buffer-name) ',buffers))))))
 
 (provide 'chatgpt-shell)
 
