@@ -15,8 +15,6 @@ A minimal ChatGPT Emacs shell.
 - dynamically set system prompts
 - say =dwim...= and we make it output elisp and eval that.
 
-
-
 original work: https://github.com/xenodium/chatgpt-shell
 
 * Install

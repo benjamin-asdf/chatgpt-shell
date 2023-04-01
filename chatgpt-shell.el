@@ -131,6 +131,11 @@ ChatGPT."
 
 (defvaralias 'inferior-chatgpt-mode-map 'chatgpt-shell-map)
 
+(defcustom chatgpt-shell-balance-parens-fn
+  (if (fboundp 'lispy--balance) #'lispy--balance
+    #'chatgpt-shell-balance-parens)
+  "Function to balance parens.")
+
 (defconst chatgpt-shell-font-lock-keywords
   `(;; Markdown triple backticks source blocks
     ("\\(^\\(```\\)\\([^`\n]*\\)\n\\)\\(\\(?:.\\|\n\\)*?\\)\\(^\\(```\\)$\\)"
@@ -227,11 +232,14 @@ Uses the interface provided by `comint-mode'"
 (defun chatgpt-shell--context-file-messages (contexts)
   "Return a list of context messages based on the provided CONTEXTS."
   (interactive)
-  (cl-mapcar (lambda (ctx)
+  (cl-mapcar (lambda (item)
                (list (cons 'role "system")
-                     (cons 'content (format "file: %s, content: %s"
-                                            (car ctx)
-                                            (funcall (cdr ctx))))))
+                     (cons 'content (format
+                                     "File: %s, content: %s"
+                                     item
+                                     (with-temp-buffer
+                                       (insert-file-contents item)
+                                       (buffer-string))))))
              contexts))
 
 (defun chatgpt-shell--context-buffer-item (buf)
@@ -247,7 +255,7 @@ Uses the interface provided by `comint-mode'"
   "Add context items (files or buffers) to ChatGPT."
   (interactive)
   ;; when consult is loaded, else completing-read
-  (let*
+  (when-let*
       ((selected
         (consult--multi
          consult-buffer-sources
@@ -256,27 +264,21 @@ Uses the interface provided by `comint-mode'"
          :state nil
          :require-match t
          :sort nil))
-       (item (car selected)))
-    (cl-pushnew
-     `(,item .
-             ,(pcase
-                  (plist-get (cdr selected) :name)
-                ("File"
-                 (lambda ()
-                   (with-temp-buffer
-                     (insert-file-contents file)
-                     (buffer-string))))
-                ("Buffer"
-                 (lambda ()
-                   (when-let ((b (get-buffer item)))
-                     (with-current-buffer b (buffer-substring-no-properties
-                                             (point-min)
-                                             (point-max))))))
-                ;; ""
-                ;; "Bookmarks"
+       (item (car selected))
+       (file
+        (pcase
+            (plist-get
+             (cdr selected)
+             :name)
+          ("File"
+           (expand-file-name item))
+          ("Buffer"
+           (when-let ((b (get-buffer item)))
+             (with-current-buffer b
+               (expand-file-name (or (buffer-file-name)
+                                     (user-error "%s not visiting a file" item)))))))))
+    (cl-pushnew file chatgpt-shell-contexts)))
 
-                ))
-     chatgpt-shell-contexts)))
 (defun chatgpt-clear-contexts ()
   (interactive)
   (setf chatgpt-shell-contexts nil))
@@ -285,12 +287,12 @@ Uses the interface provided by `comint-mode'"
   (interactive)
   (if (not chatgpt-shell-contexts)
       (message "contexts emtpy")
-      (let ((to-remove (completing-read-multiple "Remove: " (mapcar #'car chatgpt-shell-contexts)))
-            new-list)
-        (dolist (context chatgpt-shell-contexts)
-          (unless (member (car context) to-remove)
-            (push context new-list)))
-        (setq chatgpt-shell-contexts (nreverse new-list)))))
+    (let ((to-remove (completing-read-multiple "Remove: " chatgpt-shell-contexts))
+          new-list)
+      (dolist (context chatgpt-shell-contexts)
+        (unless (member context to-remove)
+          (push context new-list)))
+      (setq chatgpt-shell-contexts (nreverse new-list)))))
 
 (defun chatgpt-shell-return ()
   "RET binding."
@@ -348,31 +350,27 @@ Set SAVE-EXCURSION to prevent point from moving."
   (setq chatgpt-shell--busy nil)
   (message "interrupted!"))
 
-
 (defvar-local chatgpt-shell-dwim-p nil)
 
 (defun chatgpt-shell-dwim-prompt ()
   (list
    (cons 'role "system")
    (cons 'content
-         "You are an emacs ai package.
+         "You are an Emacs ai assistant package.
 The user asks you to 'do what I mean' (dwim) with the current context.
 Output a snippet of elisp that helps the user make progress on their programming task.
-Consider that the running emacs program is evaluating your output in a temp buffer.
-If your desire is to show the user a message, consider calling (message).
-
 Example:
 
 Input:
 
-file: fib.clj, content: ;; fib implementation with tail recursion
+File: /home/joe/fib.clj, content: ;; fib implementation with tail recursion
 
 User: dwim
 
 Output:
 
 (with-current-buffer
-    (find-file-noselect \"fib.clj\")
+    (find-file-noselect \"/home/joe/fib.clj\")
   (goto-char (point-max))
   (insert
    \"(defn fib-tail-rec [n]
@@ -397,21 +395,17 @@ Output:
 
 (find-file user-init-file)
 
-User: dwim greeting function
+Input:
+
+User: dwim make me a sandwitch
 
 Output:
 
 (progn
-  (defun greeting (name)
-    \"Make a greeting with NAME\"
-    (message \"Hello, \" name))
-  (message \"defined greeting\"))
-
-User: dwim authors in repo
-
-Output:
-
-(async-shell-command \"git shortlog -sne\")")))
+  (message
+   \"%s\"
+   (defun make-sandwitch (bread vegan-patty)
+     (list bread vegan-patty bread))))")))
 
 (defun chatgpt-shell--eval-input (input-string)
   "Evaluate the Lisp expression INPUT-STRING, and pretty-print the result."
@@ -767,20 +761,62 @@ if `json' is available."
        (buff (car buffers)))
     (display-buffer buff)))
 
-(defun chatgpt-eval-what-the-assistant-just-said (buff)
-    (interactive)
-    (with-temp-buffer
-      (insert
-       (with-current-buffer
-           buff
-         (string-remove-prefix
-          "assistant: "
-          (assoc-default
-           'content
-           (car
-            (last
-             (chatgpt-shell--extract-commands-and-responses)))))))
-      (eval-buffer)))
+(defun chatgpt-shell-balance-parens (str)
+  (let ((parens-count 0)
+        (brackets-count 0)
+        (braces-count 0)
+        (new-str ""))
+    (dolist (char (string-to-list str))
+      (cond ((eq char ?\()
+             (setq parens-count (1+ parens-count))
+             (setq new-str (concat new-str (char-to-string char))))
+            ((eq char ?\))
+             (setq parens-count (1- parens-count))
+             (setq new-str (concat new-str (char-to-string char))))
+            ((eq char ?\[)
+             (setq brackets-count (1+ brackets-count))
+             (setq new-str (concat new-str (char-to-string char))))
+            ((eq char ?\])
+             (setq brackets-count (1- brackets-count))
+             (setq new-str (concat new-str (char-to-string char))))
+            ((eq char ?\{)
+             (setq braces-count (1+ braces-count))
+             (setq new-str (concat new-str (char-to-string char))))
+            ((eq char ?\})
+             (setq braces-count (1- braces-count))
+             (setq new-str (concat new-str (char-to-string char))))
+            (t
+             (setq new-str (concat new-str (char-to-string char))))))
+    (while (> parens-count 0)
+      (setq new-str (concat new-str ")"))
+      (setq parens-count (1- parens-count)))
+    (while (< parens-count 0)
+      (setq new-str (concat "(" new-str))
+      (setq parens-count (1+ parens-count)))
+    (while (> brackets-count 0)
+      (setq new-str (concat new-str "]"))
+      (setq brackets-count (1- brackets-count)))
+    (while (> braces-count 0)
+      (setq new-str (concat new-str "}"))
+      (setq braces-count (1- braces-count)))
+    new-str))
+
+(defun chatgpt-eval-what-the-assistant-just-said (&optional buff)
+  (interactive (list (current-buffer)))
+  (with-temp-buffer
+    (insert
+     (funcall
+      chatgpt-shell-balance-parens-fn
+      (with-current-buffer
+          buff
+        (string-remove-prefix
+         "assistant: "
+         (assoc-default
+          'content
+          (car
+           (last
+            (chatgpt-shell--extract-commands-and-responses))))))))
+    (eval-buffer)))
 
 (provide 'chatgpt-shell)
 
