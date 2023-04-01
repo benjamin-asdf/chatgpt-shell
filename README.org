@@ -2,6 +2,11 @@
 
 A minimal ChatGPT Emacs shell.
 
+#+HTML: <img src="https://i.imgur.com/KeVga57.gif" width="80%" />
+
+#+HTML: <img src="https://i.imgur.com/XnUMhDk.gif" width="80%" />
+
+
 - Multiple chat sessions.
 - Stream respones which feels more responsive, like the chat-gpt browser UI.
 - =C-c C-c= to stop responding.
@@ -9,7 +14,7 @@ A minimal ChatGPT Emacs shell.
 - dynamically set system prompts
 - say =dwim...= and we make it output elisp and eval that.
 
-#+HTML: <img src="https://i.imgur.com/XnUMhDk.gif" width="80%" />
+
 
 original work: https://github.com/xenodium/chatgpt-shell
 

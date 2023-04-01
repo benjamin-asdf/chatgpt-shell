@@ -359,16 +359,13 @@ Set SAVE-EXCURSION to prevent point from moving."
 The user asks you to 'do what I mean' (dwim) with the current context.
 Output a snippet of elisp that helps the user make progress on their programming task.
 Consider that the running emacs program is evaluating your output in a temp buffer.
-If your desire is to show the user a message, consider calling
-message, or
-(with-current-buffer-window nil nil (insert \"message\"))
-
+If your desire is to show the user a message, consider calling (message).
 
 Example:
 
 Input:
 
-file: fib.clj,  content: ;; fib implementation with tail recursion
+file: fib.clj, content: ;; fib implementation with tail recursion
 
 User: dwim
 
@@ -408,7 +405,13 @@ Output:
   (defun greeting (name)
     \"Make a greeting with NAME\"
     (message \"Hello, \" name))
-  (message \"defined greeting\"))")))
+  (message \"defined greeting\"))
+
+User: dwim authors in repo
+
+Output:
+
+(async-shell-command \"git shortlog -sne\")")))
 
 (defun chatgpt-shell--eval-input (input-string)
   "Evaluate the Lisp expression INPUT-STRING, and pretty-print the result."
