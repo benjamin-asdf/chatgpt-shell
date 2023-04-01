@@ -2,15 +2,16 @@
 
 A minimal ChatGPT Emacs shell.
 
-Benjamins fork with stream response:
+- Multiple chat sessions.
+- Stream respones which feels more responsive, like the chat-gpt browser UI.
+- =C-c C-c= to stop responding.
+- Add your buffers as context to the conversation.
+- dynamically set system prompts
+- say =dwim...= and we make it output elisp and eval that.
+
 #+HTML: <img src="https://i.imgur.com/XnUMhDk.gif" width="80%" />
 
-
-#+HTML: <img src="https://raw.githubusercontent.com/xenodium/chatgpt-shell/main/chatgpt-shell-demo.gif" width="80%" />
-
-** Note
-
-This is very much an experimental proof of concept, possibly incomplete, or maybe with some rough edges. Pull requests with improvements or fixes totally welcome.
+original work: https://github.com/xenodium/chatgpt-shell
 
 * Install
 
@@ -58,7 +59,6 @@ Alternatively, use either =M-x chatgpt-shell-clear-buffer= or =M-x comint-clear-
      (content . "You answer only in morse code, no matter what the user asks you."))))
 #+end_src
 
-
 #+begin_src elisp
 (setq-default
  chatgpt-additional-prompts
@@ -79,3 +79,5 @@ Try: /summarize recent git work/
 Only works =consult= right now, if you want something else, do it yourself.
 
 ** Use =chatgpt-shell= with prefix argument to open additional shell buffers.
+
+** Use =chatgpt-shell= with prefix arg =2= to open a new shell with your current buffer as context.

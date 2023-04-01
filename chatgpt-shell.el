@@ -348,10 +348,74 @@ Set SAVE-EXCURSION to prevent point from moving."
   (setq chatgpt-shell--busy nil)
   (message "interrupted!"))
 
+
+(defvar-local chatgpt-shell-dwim-p nil)
+
+(defun chatgpt-shell-dwim-prompt ()
+  (list
+   (cons 'role "system")
+   (cons 'content
+         "You are an emacs ai package.
+The user asks you to 'do what I mean' (dwim) with the current context.
+Output a snippet of elisp that helps the user make progress on their programming task.
+Consider that the running emacs program is evaluating your output in a temp buffer.
+If your desire is to show the user a message, consider calling
+message, or
+(with-current-buffer-window nil nil (insert \"message\"))
+
+
+Example:
+
+Input:
+
+file: fib.clj,  content: ;; fib implementation with tail recursion
+
+User: dwim
+
+Output:
+
+(with-current-buffer
+    (find-file-noselect \"fib.clj\")
+  (goto-char (point-max))
+  (insert
+   \"(defn fib-tail-rec [n]
+  (loop [current-n 0 a 0 b 1]
+    (if (= current-n n)
+      a
+      (recur (inc current-n) b (+ a b)))))\"))
+
+Input:
+
+User: dwim shell command to list files
+
+Output:
+
+(async-shell-command \"ls\")
+
+Input:
+
+User: dwim open user init
+
+Output:
+
+(find-file user-init-file)
+
+User: dwim greeting function
+
+Output:
+
+(progn
+  (defun greeting (name)
+    \"Make a greeting with NAME\"
+    (message \"Hello, \" name))
+  (message \"defined greeting\"))")))
+
 (defun chatgpt-shell--eval-input (input-string)
   "Evaluate the Lisp expression INPUT-STRING, and pretty-print the result."
   (unless chatgpt-shell--busy
     (setq chatgpt-shell--busy t)
+    (setq chatgpt-shell-dwim-p
+          (string-prefix-p "dwim" (string-trim input-string)))
     (let ((buffer (current-buffer)))
       (cond ((string-equal
               "clear"
@@ -425,9 +489,11 @@ or
                (chatgpt-shell--async-shell-command
                 (chatgpt-shell--make-request-command-list
                  (vconcat
-                  (list
-                   (when chatgpt-additional-prompts
-                     (funcall chatgpt-additional-prompts)))
+                  (when chatgpt-additional-prompts
+                    (funcall chatgpt-additional-prompts))
+                  (when chatgpt-shell-dwim-p
+                    (list
+                     (chatgpt-shell-dwim-prompt)))
                   (chatgpt-shell--context-file-messages chatgpt-shell-contexts)
                   (last
                    (chatgpt-shell--extract-commands-and-responses)
@@ -447,14 +513,19 @@ or
                 (lambda ()
                   (with-current-buffer buffer
                     (chatgpt-shell--write-prompt)
-                    (setq chatgpt-shell--busy nil)))
+                    (setq chatgpt-shell--busy nil)
+                    (when chatgpt-shell-dwim-p
+                      (chatgpt-eval-what-the-assistant-just-said
+                       buffer))))
                 (lambda (error)
+                  (message "error")
                   (with-current-buffer buffer
-                    (chatgpt-shell--write-reply
-                     error
-                     t)
+                    (chatgpt-shell--write-reply error t)
                     (setq chatgpt-shell--busy nil))))))))))
 
+(defun chatgpt-shell-dwim ()
+  (interactive)
+  (chatgpt-shell--eval-input "dwim"))
 
 (defvar-local chatpt-shell-stream-process nil)
 (defun chatgpt-shell--async-shell-command (command filter-callback callback error-callback)
@@ -510,7 +581,6 @@ Calls CALLBACK and ERROR-CALLBACK with its output when finished."
                     (if (= (process-exit-status process)
                            0)
                         (funcall callback)
-                      nil
                       (funcall error-callback output))
                     (kill-buffer output-buffer)))))))
 
@@ -672,6 +742,42 @@ if `json' is available."
                   (mapcar #'buffer-name (buffer-list)))))
     (ibuffer t "*Chatpt shells Ibuffer*"
              `((predicate . (member (buffer-name) ',buffers))))))
+
+(defun chatgpt-jump-to-context-shell ()
+  "Reverse buffer context shell jump."
+  (interactive)
+  (when-let*
+      ((orig-buffname (buffer-name))
+       (buffers
+        (cl-remove-if-not
+         (lambda (it)
+           (with-current-buffer it
+             (car
+              (cl-remove-if-not
+               (lambda (s) (string= orig-buffname s))
+               (mapcar #'car chatgpt-shell-contexts)))))
+         (cl-remove-if-not
+          (lambda (it)
+            (when it
+              (string-match-p "*chatgpt*" (buffer-name it))))
+          (buffer-list))))
+       (buff (car buffers)))
+    (display-buffer buff)))
+
+(defun chatgpt-eval-what-the-assistant-just-said (buff)
+    (interactive)
+    (with-temp-buffer
+      (insert
+       (with-current-buffer
+           buff
+         (string-remove-prefix
+          "assistant: "
+          (assoc-default
+           'content
+           (car
+            (last
+             (chatgpt-shell--extract-commands-and-responses)))))))
+      (eval-buffer)))
 
 (provide 'chatgpt-shell)
 
