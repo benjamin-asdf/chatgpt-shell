@@ -243,13 +243,14 @@ Uses the interface provided by `comint-mode'"
              contexts))
 
 (defun chatgpt-shell--context-buffer-item (buf)
-  (cons
-   (buffer-name buf)
-   (lambda ()
-     (when-let ((b (get-buffer buf)))
-       (with-current-buffer b (buffer-substring-no-properties
-                               (point-min)
-                               (point-max)))))))
+  ;; (cons
+  ;;  (buffer-name buf)
+  ;;  (lambda ()
+  ;;    (when-let ((b (get-buffer buf)))
+  ;;      (with-current-buffer b (buffer-substring-no-properties
+  ;;                              (point-min)
+  ;;                              (point-max))))))
+  (buffer-file-name buf))
 
 (defun chatgpt-shell-shell-add-context-file ()
   "Add context items (files or buffers) to ChatGPT."
@@ -352,13 +353,19 @@ Set SAVE-EXCURSION to prevent point from moving."
 
 (defvar-local chatgpt-shell-dwim-p nil)
 
+;; you want to redef to your desire and setup.
+;; I am telling it to use lispy-multiline
+
 (defun chatgpt-shell-dwim-prompt ()
   (list
    (cons 'role "system")
    (cons 'content
-         "You are an Emacs ai assistant package.
+         "You are an Emacs AI assistant package.
 The user asks you to 'do what I mean' (dwim) with the current context.
-Output a snippet of elisp that helps the user make progress on their programming task.
+You output Emacs lisp that will be evaled in the users emacs and makes progress on the
+programming task at hand.
+Comments in the code are commands to you to implement or fix code.
+
 Example:
 
 Input:
@@ -373,11 +380,14 @@ Output:
     (find-file-noselect \"/home/joe/fib.clj\")
   (goto-char (point-max))
   (insert
-   \"(defn fib-tail-rec [n]
-  (loop [current-n 0 a 0 b 1]
-    (if (= current-n n)
-      a
-      (recur (inc current-n) b (+ a b)))))\"))
+   (prin1-to-string
+    '(defn fib-tail-rec [n]
+           (loop [current-n 0 a 0 b 1]
+                 (if (= current-n n)
+                     a
+                   (recur (inc current-n) b (+ a b)))))))
+  (lispy-multiline))
+
 
 Input:
 
@@ -397,15 +407,50 @@ Output:
 
 Input:
 
-User: dwim make me a sandwitch
+File: foo.clj, content:
+(defn add-one [x]
+  (+ x 1))
+;; dwim add square function
+
+User: dwim
 
 Output:
 
-(progn
-  (message
-   \"%s\"
-   (defun make-sandwitch (bread vegan-patty)
-     (list bread vegan-patty bread))))")))
+(with-current-buffer (find-file-noselect \"foo.clj\")
+  (goto-char (point-min))
+  (re-search-forward \"dwim add square function\\\n\")
+  (insert \"(defn square (x) (* x x))\"))
+
+
+Input: File: /home/joe/src/memescheme, content: Memescheme.
+* Concept
+- A Cloojure dialect written in Clojure
+
+User: dwim make the project
+
+(with-current-buffer (find-file-noselect \"deps.edn\")
+  (goto-char (point-min))
+  (insert \"{:paths [\\\"src\\\"]\\n\")
+  (insert \" :deps {org.clojure/clojure {:mvn/version \\\"1.11.1\\\"}}\\n\")
+  (insert \" :aliases\\n\")
+  (insert \" {:test {:extra-paths [\\\"test\\\"]\\n\")
+  (insert \"         :extra-deps {org.clojure/test.check {:mvn/version \\\"1.1.1\\\"}}}}}\")
+  (save-buffer)
+
+  (make-directory \"src/memescheme\" t)
+  (with-current-buffer (find-file-noselect \"src/memescheme/core.clj\")
+    (goto-char (point-min))
+    (insert \"(ns memescheme.core)\")
+    (save-buffer))
+
+  (make-directory \"test/memescheme\" t)
+  (with-current-buffer (find-file-noselect \"test/memescheme/core_test.clj\")
+    (goto-char (point-min))
+    (insert \"(ns memescheme.core-test\\n\")
+    (insert \"  (:require [clojure.test :refer :all]\\n\")
+    (insert \"            [memescheme.core :as sut]))\")
+    (save-buffer)))
+")))
 
 (defun chatgpt-shell--eval-input (input-string)
   "Evaluate the Lisp expression INPUT-STRING, and pretty-print the result."
@@ -744,7 +789,8 @@ if `json' is available."
   "Reverse buffer context shell jump."
   (interactive)
   (when-let*
-      ((orig-buffname (buffer-name))
+      ((orig-buffname ;; (buffer-name)
+        (buffer-file-name))
        (buffers
         (cl-remove-if-not
          (lambda (it)
@@ -752,7 +798,8 @@ if `json' is available."
              (car
               (cl-remove-if-not
                (lambda (s) (string= orig-buffname s))
-               (mapcar #'car chatgpt-shell-contexts)))))
+               ;; (mapcar #'car chatgpt-shell-contexts)
+               chatgpt-shell-contexts))))
          (cl-remove-if-not
           (lambda (it)
             (when it
@@ -803,20 +850,22 @@ if `json' is available."
 
 (defun chatgpt-eval-what-the-assistant-just-said (&optional buff)
   (interactive (list (current-buffer)))
-  (with-temp-buffer
-    (insert
-     (funcall
-      chatgpt-shell-balance-parens-fn
-      (with-current-buffer
-          buff
-        (string-remove-prefix
-         "assistant: "
-         (assoc-default
-          'content
-          (car
-           (last
-            (chatgpt-shell--extract-commands-and-responses))))))))
-    (eval-buffer)))
+  (let ((s
+         (funcall
+          chatgpt-shell-balance-parens-fn
+          (with-current-buffer
+              buff
+            (string-remove-prefix
+             "assistant: "
+             (assoc-default
+              'content
+              (car
+               (last
+                (chatgpt-shell--extract-commands-and-responses)))))))))
+    (condition-case 
+        (with-temp-buffer
+          (insert s)
+          (eval-buffer)))))
 
 (provide 'chatgpt-shell)
 
