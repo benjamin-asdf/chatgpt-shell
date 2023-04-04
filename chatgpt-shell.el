@@ -190,7 +190,8 @@ ChatGPT."
            chatgpt-shell-contexts))))
     (pop-to-buffer-same-window buf-name)
     (when old-point
-      (push-mark old-point))))
+      (push-mark old-point))
+    (get-buffer buf-name)))
 
 (define-derived-mode inferior-chatgpt-mode comint-mode "CHATGPT"
   "Major mode for interactively evaluating ChatGPT prompts.
@@ -234,29 +235,35 @@ Uses the interface provided by `comint-mode'"
   (interactive)
   (cl-mapcar (lambda (item)
                (list (cons 'role "system")
-                     (cons 'content (format
-                                     "File: %s, content: %s"
-                                     item
-                                     (with-temp-buffer
-                                       (insert-file-contents item)
-                                       (buffer-string))))))
+                     (cons 'content
+                           (format
+                            "%s, content: %s"
+                            (let ((item1 (car item)))
+                              (if-let ((b (get-buffer item1)))
+                                  (format
+                                   "Buffer: %s
+buffer-file-name: %s"
+                                   item1
+                                   (buffer-file-name b))
+                                (concat "File: " item1)))
+                            (funcall (cdr item))))))
              contexts))
 
 (defun chatgpt-shell--context-buffer-item (buf)
-  ;; (cons
-  ;;  (buffer-name buf)
-  ;;  (lambda ()
-  ;;    (when-let ((b (get-buffer buf)))
-  ;;      (with-current-buffer b (buffer-substring-no-properties
-  ;;                              (point-min)
-  ;;                              (point-max))))))
-  (buffer-file-name buf))
+  (cons
+   (buffer-name buf)
+   (lambda ()
+     (when-let ((b (get-buffer buf)))
+       (with-current-buffer b (buffer-substring-no-properties
+                               (point-min)
+                               (point-max)))))))
+
 
 (defun chatgpt-shell-shell-add-context-file ()
   "Add context items (files or buffers) to ChatGPT."
   (interactive)
   ;; when consult is loaded, else completing-read
-  (when-let*
+  (let*
       ((selected
         (consult--multi
          consult-buffer-sources
@@ -265,20 +272,26 @@ Uses the interface provided by `comint-mode'"
          :state nil
          :require-match t
          :sort nil))
-       (item (car selected))
-       (file
-        (pcase
-            (plist-get
-             (cdr selected)
-             :name)
-          ("File"
-           (expand-file-name item))
-          ("Buffer"
-           (when-let ((b (get-buffer item)))
-             (with-current-buffer b
-               (expand-file-name (or (buffer-file-name)
-                                     (user-error "%s not visiting a file" item)))))))))
-    (cl-pushnew file chatgpt-shell-contexts)))
+       (item (car selected)))
+    (cl-pushnew
+     `(,item .
+             ,(pcase
+                  (plist-get (cdr selected) :name)
+                ("File"
+                 (lambda ()
+                   (with-temp-buffer
+                     (insert-file-contents file)
+                     (buffer-string))))
+                ("Buffer"
+                 (lambda ()
+                   (when-let ((b (get-buffer item)))
+                     (with-current-buffer b (buffer-substring-no-properties
+                                             (point-min)
+                                             (point-max))))))
+                ;; ""
+                ;; "Bookmarks"
+                ))
+     chatgpt-shell-contexts)))
 
 (defun chatgpt-clear-contexts ()
   (interactive)
@@ -288,12 +301,12 @@ Uses the interface provided by `comint-mode'"
   (interactive)
   (if (not chatgpt-shell-contexts)
       (message "contexts emtpy")
-    (let ((to-remove (completing-read-multiple "Remove: " chatgpt-shell-contexts))
-          new-list)
-      (dolist (context chatgpt-shell-contexts)
-        (unless (member context to-remove)
-          (push context new-list)))
-      (setq chatgpt-shell-contexts (nreverse new-list)))))
+      (let ((to-remove (completing-read-multiple "Remove: " (mapcar #'car chatgpt-shell-contexts)))
+            new-list)
+        (dolist (context chatgpt-shell-contexts)
+          (unless (member (car context) to-remove)
+            (push context new-list)))
+        (setq chatgpt-shell-contexts (nreverse new-list)))))
 
 (defun chatgpt-shell-return ()
   "RET binding."
@@ -430,10 +443,10 @@ User: dwim make the project
 
 (with-current-buffer (find-file-noselect \"deps.edn\")
   (goto-char (point-min))
-  (insert \"{:paths [\\\"src\\\"]\\n\")
-  (insert \" :deps {org.clojure/clojure {:mvn/version \\\"1.11.1\\\"}}\\n\")
-  (insert \" :aliases\\n\")
-  (insert \" {:test {:extra-paths [\\\"test\\\"]\\n\")
+  (insert \"{:paths [\\\"src\\\"]\\\n\")
+  (insert \" :deps {org.clojure/clojure {:mvn/version \\\"1.11.1\\\"}}\\\n\")
+  (insert \" :aliases\\\n\")
+  (insert \" {:test {:extra-paths [\\\"test\\\"]\\\n\")
   (insert \"         :extra-deps {org.clojure/test.check {:mvn/version \\\"1.1.1\\\"}}}}}\")
   (save-buffer)
 
@@ -446,10 +459,34 @@ User: dwim make the project
   (make-directory \"test/memescheme\" t)
   (with-current-buffer (find-file-noselect \"test/memescheme/core_test.clj\")
     (goto-char (point-min))
-    (insert \"(ns memescheme.core-test\\n\")
-    (insert \"  (:require [clojure.test :refer :all]\\n\")
+    (insert \"(ns memescheme.core-test\\\n\")
+    (insert \"  (:require [clojure.test :refer :all]\\\n\")
     (insert \"            [memescheme.core :as sut]))\")
     (save-buffer)))
+
+
+Input: File: quotes.org, content: #+title:      quotes-and-thought-stuff
+#+date:       [2023-04-03 Mon 20:41]
+#+filetags:   :clojure:emacs:public:
+#+identifier: 20230403T204140
+
+#+begin_quote
+To appreciate Lisp and Emacs, one must unlearn the ordinary, and then relearn the extraordinary.
+#+end_quote
+
+#+begin_quote
+The key to understanding Lisp is realizing that it's simply layers upon layers of abstraction. - Hal Abelson
+#+end_quote
+
+User: dwim more
+
+Output:
+
+(with-current-buffer (find-file-noselect \"/home/benj/notes/20230403T204140--quotes-and-thought-stuff__clojure_emacs_public.org\")
+  (goto-char (point-max))
+  (insert \"#+begin_quote
+Any sufficiently complicated C or Fortran program contains an ad hoc, informally-specified, bug-ridden, slow implementation of half of Common Lisp. - Philip Greenspun
+#+end_quote\\n\"))
 ")))
 
 (defun chatgpt-shell--eval-input (input-string)
@@ -534,8 +571,7 @@ or
                   (when chatgpt-additional-prompts
                     (funcall chatgpt-additional-prompts))
                   (when chatgpt-shell-dwim-p
-                    (list
-                     (chatgpt-shell-dwim-prompt)))
+                    (list (chatgpt-shell-dwim-prompt)))
                   (chatgpt-shell--context-file-messages chatgpt-shell-contexts)
                   (last
                    (chatgpt-shell--extract-commands-and-responses)
@@ -740,7 +776,7 @@ Used by `chatgpt-shell--send-input's call."
                   (push (list (cons 'role "user")
                               (cons 'content prompt)) result))
                 (when (not (string-empty-p response))
-                  (push (list (cons 'role "system")
+                  (push (list (cons 'role "assistant")
                               (cons 'content response)) result)))))
           (split-string (substring-no-properties (buffer-string))
                         chatgpt-shell--prompt-internal))
@@ -789,8 +825,7 @@ if `json' is available."
   "Reverse buffer context shell jump."
   (interactive)
   (when-let*
-      ((orig-buffname ;; (buffer-name)
-        (buffer-file-name))
+      ((orig-buffname (buffer-name))
        (buffers
         (cl-remove-if-not
          (lambda (it)
@@ -798,15 +833,15 @@ if `json' is available."
              (car
               (cl-remove-if-not
                (lambda (s) (string= orig-buffname s))
-               ;; (mapcar #'car chatgpt-shell-contexts)
-               chatgpt-shell-contexts))))
+               (mapcar #'car chatgpt-shell-contexts)))))
          (cl-remove-if-not
           (lambda (it)
             (when it
               (string-match-p "*chatgpt*" (buffer-name it))))
           (buffer-list))))
        (buff (car buffers)))
-    (display-buffer buff)))
+    (let ((display-buffer-alist '((".*" display-buffer-below-selected))))
+      (display-buffer buff))))
 
 (defun chatgpt-shell-balance-parens (str)
   (let ((parens-count 0)
@@ -849,24 +884,34 @@ if `json' is available."
     new-str))
 
 (defun chatgpt-eval-what-the-assistant-just-said (&optional buff)
-  (interactive (list (current-buffer)))
-  (let ((s
-         (funcall
-          chatgpt-shell-balance-parens-fn
-          (with-current-buffer
-              buff
-            (string-remove-prefix
-             "assistant: "
-             (assoc-default
-              'content
-              (car
-               (last
-                (chatgpt-shell--extract-commands-and-responses)))))))))
-    (condition-case 
+  (interactive)
+  (let*
+      ((buff (or buff (current-buffer)))
+       (s
+        (with-temp-buffer
+          (funcall
+           chatgpt-shell-balance-parens-fn
+           (with-current-buffer
+               buff
+             (string-remove-prefix
+              "assistant: "
+              (assoc-default
+               'content
+               (car
+                (last
+                 (chatgpt-shell--extract-commands-and-responses))))))))))
+    (condition-case
+        nil
         (with-temp-buffer
           (insert s)
-          (eval-buffer)))))
+          (eval-buffer))
+      (error
+       (with-current-buffer-window "assistant" nil nil
+         (erase-buffer)
+         (insert s)
+         (emacs-lisp-mode))))))
 
 (provide 'chatgpt-shell)
 
 ;;; chatgpt-shell.el ends here
+
