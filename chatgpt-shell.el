@@ -486,7 +486,21 @@ Output:
   (goto-char (point-max))
   (insert \"#+begin_quote
 Any sufficiently complicated C or Fortran program contains an ad hoc, informally-specified, bug-ridden, slow implementation of half of Common Lisp. - Philip Greenspun
-#+end_quote\\n\"))
+#+end_quote\\\n\"))
+
+
+Input: Buffer: foo.clj buffer-file-name: /home/joe/src/foo.clj, content ;; dwim say hello
+
+User: dwim
+
+Output:
+
+(with-current-buffer \"foo.clj\"
+  (re-search-forward \";; dwim\")
+  (end-of-line)
+  (open-line 1)
+  (forward-line 1)
+  (insert \"(defn greeting [msg] (println \\\"Hello, \\\" msg))\"))
 ")))
 
 (defun chatgpt-shell--eval-input (input-string)
@@ -626,6 +640,10 @@ Calls CALLBACK and ERROR-CALLBACK with its output when finished."
                                  (assoc-default 'choices data))
                                 (msg
                                  (or
+                                  (when-let
+                                      ((error-d
+                                        (assoc-default 'error data)))
+                                    (assoc-default 'message error-d))
                                   (car (cl-map
                                         'list
                                         (lambda (d)
@@ -639,28 +657,25 @@ Calls CALLBACK and ERROR-CALLBACK with its output when finished."
                                           (assoc-default
                                            'role
                                            (assoc-default 'delta d)))
-                                        choices))))
-                                (msg (if
-                                         (string= "assistant" msg)
-                                         "assistant: "
-                                       msg)))
+                                        choices)))))
                              (funcall filter-callback msg)
                              t)))))))
+    
     (setf chatpt-shell-stream-process
-     (make-process
-      :name "*openai-api-chat-stream*"
-      :buffer output-buffer
-      :filter filter
-      :command command
-      :sentinel (lambda (process _event)
-                  (let ((output (with-current-buffer
-                                    (process-buffer process)
-                                  (buffer-string))))
-                    (if (= (process-exit-status process)
-                           0)
-                        (funcall callback)
-                      (funcall error-callback output))
-                    (kill-buffer output-buffer)))))))
+          (make-process
+           :name "*openai-api-chat-stream*"
+           :buffer output-buffer
+           :filter filter
+           :command command
+           :sentinel (lambda (process _event)
+                       (let ((output (with-current-buffer
+                                         (process-buffer process)
+                                       (buffer-string))))
+                         (if (= (process-exit-status process)
+                                0)
+                             (funcall callback)
+                           (funcall error-callback output))
+                         (kill-buffer output-buffer)))))))
 
 (defun oai-read-a-data ()
   (when (re-search-forward "data: " nil t)
