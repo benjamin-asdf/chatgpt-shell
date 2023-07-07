@@ -158,10 +158,12 @@ ChatGPT."
     ("`\\([^`\n]+\\)`"
      (1 'markdown-inline-code-face))))
 
+
 (defvar chatgpt-shell-map
   (let ((map (nconc (make-sparse-keymap) comint-mode-map)))
     (define-key map "\C-m" 'chatgpt-shell-return)
     (define-key map "\C-c\C-c" 'chatgpt-shell-interrupt)
+    (define-key map "\C-c\C-k" 'chatgpt-shell-get-to-the-point)
     map)
   "Keymap for ChatGPT mode.")
 
@@ -643,7 +645,8 @@ Calls CALLBACK and ERROR-CALLBACK with its output when finished."
                                   (when-let
                                       ((error-d
                                         (assoc-default 'error data)))
-                                    (assoc-default 'message error-d))
+                                    ;; (assoc-default 'message error-d)
+                                    (with-output-to-string (print error-d)))
                                   (car (cl-map
                                         'list
                                         (lambda (d)
@@ -925,6 +928,13 @@ if `json' is available."
          (erase-buffer)
          (insert s)
          (emacs-lisp-mode))))))
+
+(defun chatgpt-shell-get-to-the-point ()
+  (interactive)
+  (chatgpt-shell-interrupt)
+  (goto-char (point-max))
+  (insert "More concise, please.")
+  (chatgpt-shell--send-input))
 
 (provide 'chatgpt-shell)
 
